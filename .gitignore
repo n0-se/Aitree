@@ -62,3 +62,6 @@ htmlcov/
 ai_tree.md
 output.txt
 _test
+
+aitree_config.yaml
+custom_config.yaml

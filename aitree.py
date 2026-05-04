@@ -2,6 +2,13 @@ import os
 import sys
 from datetime import datetime
 
+# Handle Windows emoji encoding issues
+if sys.platform == "win32":
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+    if hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8')
+
 # Try to import yaml, but fail gracefully if the user hasn't installed it
 try:
     import yaml
