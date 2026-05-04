@@ -25,12 +25,14 @@ $$ |  $$ |$$$$$$\          $$ |$$ |      \$$$$$$$\ \$$$$$$$\
 
 def print_help():
     print_header()
-    print("Usage: aitree <command>\n")
+    print("Usage: aitree <command> [config_file]\n")
     print("Commands:")
-    print("  generate    Build the context file based on aitree_config.yaml")
-    print("  dry         Preview which files will be added without writing anything")
-    print("  init        Create a default aitree_config.yaml in the current directory")
+    print("  generate    Build the context file (defaults to aitree_config.yaml)")
+    print("  dry         Preview files to be added (defaults to aitree_config.yaml)")
+    print("  init        Create a default config file (defaults to aitree_config.yaml)")
     print("  help        Show this help message\n")
+    print("Example:")
+    print("  aitree generate custom_config.yaml\n")
 
 def get_human_readable_size(size_in_bytes):
     """Converts raw bytes into a human-readable string."""
@@ -70,9 +72,8 @@ def generate_tree_string(paths):
 
     return "\n".join(["."] + format_tree(tree))
 
-def create_default_config():
+def create_default_config(config_name='aitree_config.yaml'):
     print_header()
-    config_name = 'aitree_config.yaml'
     
     if os.path.exists(config_name):
         print(f"⚠️  {config_name} already exists in this directory.")
@@ -134,21 +135,21 @@ extension_whitelist:
     except Exception as e:
         print(f"❌ Error creating config: {e}")
 
-def generate_context(dry_run=False):
+def generate_context(config_path='aitree_config.yaml', dry_run=False):
     print_header()
 
     if dry_run:
         print("=== DRY RUN MODE: No files will be generated ===\n")
 
     try:
-        with open('aitree_config.yaml', 'r', encoding='utf-8') as f:
+        with open(config_path, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f) or {}
     except FileNotFoundError:
-        print("❌ Error: aitree_config.yaml not found.")
-        print("💡 Tip: Run 'aitree init' to generate a default configuration file.")
+        print(f"❌ Error: {config_path} not found.")
+        print(f"💡 Tip: Run 'aitree init {config_path}' to generate a default configuration file.")
         return
     except yaml.YAMLError as e:
-        print(f"❌ Error parsing aitree_config.yaml: Invalid YAML format.")
+        print(f"❌ Error parsing {config_path}: Invalid YAML format.")
         print(f"   Details: {e}")
         return
 
@@ -322,12 +323,14 @@ def generate_context(dry_run=False):
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         command = sys.argv[1].lower()
+        config_file = sys.argv[2] if len(sys.argv) > 2 else 'aitree_config.yaml'
+        
         if command == "init":
-            create_default_config()
+            create_default_config(config_file)
         elif command == "dry":
-            generate_context(dry_run=True)
+            generate_context(config_path=config_file, dry_run=True)
         elif command == "generate":
-            generate_context(dry_run=False)
+            generate_context(config_path=config_file, dry_run=False)
         elif command in ["help", "-h", "--help"]:
             print_help()
         else:
