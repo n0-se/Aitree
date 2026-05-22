@@ -201,6 +201,15 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
     processed_files_data = [] 
     processed_paths = []
 
+    # Dictionary to track filtering stats during dry run
+    stats = {
+        'evaluated_files': 0,
+        'included': 0,
+        'blacklisted_files': 0,
+        'graylisted_files': 0,
+        'pruned_dirs': 0
+    }
+
     for root, dirs, files in os.walk(initial_folder):
         current_dir_relpath = os.path.relpath(root, initial_folder).replace("\\", "/")
 
@@ -219,6 +228,7 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
                     break
             
             if is_blacklisted:
+                stats['pruned_dirs'] += 1
                 continue 
             
             if folder_whitelist:
@@ -228,6 +238,7 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
                         keep = True
                         break
                 if not keep:
+                    stats['pruned_dirs'] += 1
                     continue
             
             valid_dirs.append(d)
@@ -256,48 +267,58 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
             if ignore_hidden and file.startswith('.'):
                 continue
 
+            stats['evaluated_files'] += 1
+
             ext = os.path.splitext(file)[1]
-            if ext in extension_whitelist:
-                file_path = os.path.join(root, file)
-                file_relpath = os.path.relpath(file_path, initial_folder).replace("\\", "/")
+            if ext not in extension_whitelist:
+                stats['graylisted_files'] += 1
+                continue
 
-                # Check if file matches any pattern in filepath_blacklist
-                if any(fnmatch.fnmatch(file_relpath, pattern) for pattern in filepath_blacklist):
-                    continue 
+            file_path = os.path.join(root, file)
+            file_relpath = os.path.relpath(file_path, initial_folder).replace("\\", "/")
 
-                if filepath_whitelist:
-                    file_dir = file_relpath.rsplit('/', 1)[0] if '/' in file_relpath else ""
-                    # Check if this directory is covered by any whitelist pattern
-                    is_dir_whitelisted = any(fnmatch.fnmatch(file_dir, d_pattern) for d_pattern in whitelisted_file_dirs)
+            # Check if file matches any pattern in filepath_blacklist
+            if any(fnmatch.fnmatch(file_relpath, pattern) for pattern in filepath_blacklist):
+                stats['blacklisted_files'] += 1
+                continue 
+
+            if filepath_whitelist:
+                file_dir = file_relpath.rsplit('/', 1)[0] if '/' in file_relpath else ""
+                # Check if this directory is covered by any whitelist pattern
+                is_dir_whitelisted = any(fnmatch.fnmatch(file_dir, d_pattern) for d_pattern in whitelisted_file_dirs)
+                
+                if is_dir_whitelisted:
+                    # If the directory is covered by a whitelist, the file MUST match a pattern
+                    if not any(fnmatch.fnmatch(file_relpath, f_pattern) for f_pattern in filepath_whitelist):
+                        stats['graylisted_files'] += 1
+                        continue
+            
+            # If the file passes all constraints:
+            stats['included'] += 1
+
+            if dry_run:
+                try:
+                    file_size = os.path.getsize(file_path)
+                    total_bytes += file_size
+                    human_size = get_human_readable_size(file_size)
                     
-                    if is_dir_whitelisted:
-                        # If the directory is covered by a whitelist, the file MUST match a pattern
-                        if not any(fnmatch.fnmatch(file_relpath, f_pattern) for f_pattern in filepath_whitelist):
-                            continue
-
-                if dry_run:
-                    try:
-                        file_size = os.path.getsize(file_path)
-                        total_bytes += file_size
-                        human_size = get_human_readable_size(file_size)
-                        
-                        action_text = f"[DRY RUN] Would add: {file_relpath}"
-                        print(f"{action_text:<60} ({human_size:>9})")
-                    except OSError:
-                        action_text = f"[DRY RUN] Would add: {file_relpath}"
-                        print(f"{action_text:<60} (Error reading)")
-                else:
-                    try:
-                        with open(file_path, 'r', encoding='utf-8') as in_f:
-                            content = in_f.read()
-                        
-                        # Store in memory for writing later
-                        processed_files_data.append((file_relpath, content))
-                        processed_paths.append(file_relpath)
-                        print(f"Added: {file_relpath}")
-                        
-                    except Exception as e:
-                        print(f"Skipped {file_relpath} due to error: {e}")
+                    action_text = f"[DRY RUN] Would add: {file_relpath}"
+                    print(f"{action_text:<60} ({human_size:>9})")
+                except OSError:
+                    action_text = f"[DRY RUN] Would add: {file_relpath}"
+                    print(f"{action_text:<60} (Error reading)")
+            else:
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as in_f:
+                        content = in_f.read()
+                    
+                    # Store in memory for writing later
+                    processed_files_data.append((file_relpath, content))
+                    processed_paths.append(file_relpath)
+                    print(f"Added: {file_relpath}")
+                    
+                except Exception as e:
+                    print(f"Skipped {file_relpath} due to error: {e}")
 
     # --- WRITING THE FINAL FILE ---
     if not dry_run:
@@ -385,6 +406,14 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
         print("\n" + "="*73)
         total_text = "Total estimated source size:"
         print(f"{total_text:<60}  {get_human_readable_size(total_bytes):>9} ")
+        print("-" * 73)
+        print("📊 Filter Recap:")
+        print(f"  • Total files evaluated:  {stats['evaluated_files']}")
+        print(f"  • Included (Whitelisted): {stats['included']}")
+        print(f"  • Graylisted (Skipped):   {stats['graylisted_files']}")
+        print(f"  • Blacklisted:            {stats['blacklisted_files']}")
+        if stats['pruned_dirs'] > 0:
+            print(f"  • Pruned Directories:     {stats['pruned_dirs']} (files inside not counted)")
         print("="*73)
         print(f"\nDry run complete. Run 'aitree generate' to save data to {output_file}.")
     else:
