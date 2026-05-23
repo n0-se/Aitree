@@ -1,6 +1,7 @@
 import os
 import sys
 import fnmatch
+import json
 from datetime import datetime
 
 # Handle Windows emoji encoding issues
@@ -21,12 +22,12 @@ except ImportError:
 def print_header():
     header = r"""
  $$$$$$\  $$$$$$\        $$$$$$$$\                                
-$$  __$$\ \_$$  _|      \__$$  __|                               
+ $$  __$$\ \_$$  _|       \__$$  __|                               
 $$ /  $$ |  $$ |           $$ | $$$$$$\   $$$$$$\   $$$$$$\  
-$$$$$$$$ |  $$ |           $$ |$$  __$$\ $$  __$$\ $$  __$$\ 
-$$  __$$ |  $$ |           $$ |$$ |  \__|$$$$$$$$ |$$$$$$$$ |
-$$ |  $$ |  $$ |           $$ |$$ |      $$   ____|$$   ____|
-$$ |  $$ |$$$$$$\          $$ |$$ |      \$$$$$$$\ \$$$$$$$\ 
+ $$$$$$$$| $$ |          $$|$$  __$$\$$  __$$\ $$  __$$\ 
+ $$ __$$ | $$ |          $$ |$$ |  \__|$$$$$$$$ |$$$$$$$$ |
+ $$| $$ |  $$|         $$ |$$|     $$  ____|$$  ____|
+ $$| $$ |$$$$$$\         $$ |$$ |      \$$$$$$$\ \$$$$$$$\ 
 \__|  \__|\______|         \__|\__|       \_______| \_______|
     """
     print(header)
@@ -39,6 +40,7 @@ def print_help():
     print("  dry         Preview files to be added (defaults to aitree_config.yaml)")
     print("  init        Create a default config file (defaults to aitree_config.yaml)")
     print("  help        Show this help message\n")
+  
     print("Example:")
     print("  aitree generate custom_config.yaml\n")
 
@@ -107,7 +109,6 @@ project_info: ""
 
 # The root directory to start scanning from ("." is the current folder)
 initial_folder: "."
-
 # Automatically skip any file or folder starting with a dot (e.g., .git, .vscode)
 ignore_hidden_files: true
 
@@ -117,6 +118,9 @@ include_file_tree: true
 # The name of the final markdown file generated
 output_file: "ai_tree.md"
 
+# Maximum number of omitted files to list in the output (0 to hide the list)
+omitted_files_limit: 50
+
 # List of folders to explicitly include (leave empty to include everything not blacklisted)
 folder_whitelist: []
 
@@ -124,6 +128,11 @@ folder_whitelist: []
 folder_blacklist:
   - "test"
   - "vendor"
+
+# GRAYLIST: Files/Folders matching these will appear in the ASCII tree and Omitted list, 
+# but their source code will NOT be included in the output.
+folder_graylist: []
+filepath_graylist: []
 
 # Smart File Whitelist:
 # If you list files in a specific folder here (e.g., 'assets/css/style.css'),
@@ -141,6 +150,7 @@ extension_whitelist:
   - ".json"
   - ".yaml"
   - ".js"
+  - ".ts"
   - ".css"
   - ".php"
 """
@@ -175,6 +185,7 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
 
     initial_folder = config.get("initial_folder", ".")
     output_file = config.get("output_file", "output.txt")
+    omitted_files_limit = config.get("omitted_files_limit", 50)
     extension_whitelist = config.get("extension_whitelist", [])
     
     ignore_hidden = config.get("ignore_hidden_files", True)
@@ -182,13 +193,19 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
     
     folder_whitelist_raw = config.get("folder_whitelist") or []
     folder_blacklist_raw = config.get("folder_blacklist") or []
+    folder_graylist_raw = config.get("folder_graylist") or []
+    
     filepath_whitelist_raw = config.get("filepath_whitelist") or []
     filepath_blacklist_raw = config.get("filepath_blacklist") or []
+    filepath_graylist_raw = config.get("filepath_graylist") or []
 
     folder_whitelist = [os.path.normpath(p).replace("\\", "/") for p in folder_whitelist_raw]
     folder_blacklist = [os.path.normpath(p).replace("\\", "/") for p in folder_blacklist_raw]
+    folder_graylist = [os.path.normpath(p).replace("\\", "/") for p in folder_graylist_raw]
+    
     filepath_whitelist = [os.path.normpath(p).replace("\\", "/") for p in filepath_whitelist_raw]
     filepath_blacklist = [os.path.normpath(p).replace("\\", "/") for p in filepath_blacklist_raw]
+    filepath_graylist = [os.path.normpath(p).replace("\\", "/") for p in filepath_graylist_raw]
 
     whitelisted_file_dirs = set()
     for p in filepath_whitelist:
@@ -200,6 +217,8 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
     # Store processed data in memory before writing
     processed_files_data = [] 
     processed_paths = []
+    omitted_files = [] # Track files skipped within valid directories
+    dry_run_logs = []  # Buffer dry run prints so we can order the final output
 
     # Dictionary to track filtering stats during dry run
     stats = {
@@ -215,6 +234,7 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
 
         # --- DIRECTORY PRUNING LOGIC ---
         valid_dirs = []
+       
         for d in dirs:
             if ignore_hidden and d.startswith('.'):
                 continue
@@ -223,7 +243,7 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
             
             is_blacklisted = False
             for b in folder_blacklist:
-                if dir_relpath == b or dir_relpath.startswith(b + "/"):
+                 if dir_relpath == b or dir_relpath.startswith(b + "/"):
                     is_blacklisted = True
                     break
             
@@ -269,17 +289,50 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
 
             stats['evaluated_files'] += 1
 
-            ext = os.path.splitext(file)[1]
-            if ext not in extension_whitelist:
-                stats['graylisted_files'] += 1
-                continue
-
             file_path = os.path.join(root, file)
             file_relpath = os.path.relpath(file_path, initial_folder).replace("\\", "/")
+            ext = os.path.splitext(file)[1]
+            
+            # --- GRAYLIST CHECK ---
+            # Evaluated BEFORE extensions/blacklists so graylisted binaries can appear in the tree safely
+            is_graylisted = False
+            dir_to_check = "." if current_dir_relpath == "" else current_dir_relpath
+            
+            for g in folder_graylist:
+                if dir_to_check == g or dir_to_check.startswith(g + "/"):
+                    is_graylisted = True
+                    break
+            
+            if not is_graylisted and any(fnmatch.fnmatch(file_relpath, pattern) for pattern in filepath_graylist):
+                is_graylisted = True
 
-            # Check if file matches any pattern in filepath_blacklist
+            if is_graylisted:
+                stats['graylisted_files'] += 1
+                omitted_files.append(file_relpath)
+                processed_paths.append(file_relpath) # Injects into the ASCII tree!
+                if dry_run:
+                    try:
+                        file_size = os.path.getsize(file_path)
+                        human_size = get_human_readable_size(file_size)
+                        action_text = f"[DRY RUN] Would graylist: {file_relpath}"
+                        dry_run_logs.append(f"{action_text:<60} ({human_size:>9})")
+                    except OSError:
+                        action_text = f"[DRY RUN] Would graylist: {file_relpath}"
+                        dry_run_logs.append(f"{action_text:<60} (Error reading)")
+                else:
+                    print(f"Graylisted: {file_relpath}")
+                
+                continue # Skip content reading
+
+            # --- STANDARD BLACKLIST & WHITELIST CHECKS ---
+            if ext not in extension_whitelist:
+                stats['graylisted_files'] += 1
+                omitted_files.append(file_relpath)
+                continue
+
             if any(fnmatch.fnmatch(file_relpath, pattern) for pattern in filepath_blacklist):
                 stats['blacklisted_files'] += 1
+                omitted_files.append(file_relpath)
                 continue 
 
             if filepath_whitelist:
@@ -291,8 +344,9 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
                     # If the directory is covered by a whitelist, the file MUST match a pattern
                     if not any(fnmatch.fnmatch(file_relpath, f_pattern) for f_pattern in filepath_whitelist):
                         stats['graylisted_files'] += 1
+                        omitted_files.append(file_relpath)
                         continue
-            
+
             # If the file passes all constraints:
             stats['included'] += 1
 
@@ -303,20 +357,23 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
                     human_size = get_human_readable_size(file_size)
                     
                     action_text = f"[DRY RUN] Would add: {file_relpath}"
-                    print(f"{action_text:<60} ({human_size:>9})")
+                    dry_run_logs.append(f"{action_text:<60} ({human_size:>9})")
                 except OSError:
                     action_text = f"[DRY RUN] Would add: {file_relpath}"
-                    print(f"{action_text:<60} (Error reading)")
+                    dry_run_logs.append(f"{action_text:<60} (Error reading)")
             else:
                 try:
                     with open(file_path, 'r', encoding='utf-8') as in_f:
                         content = in_f.read()
                     
-                    # Store in memory for writing later
-                    processed_files_data.append((file_relpath, content))
+                    lines = content.split('\n')
+                    max_digits = len(str(len(lines)))
+                    numbered_lines = [f"{str(i+1).rjust(max_digits)} | {line}" for i, line in enumerate(lines)]
+                    numbered_content = '\n'.join(numbered_lines)
+
+                    processed_files_data.append((file_relpath, numbered_content, ext))
                     processed_paths.append(file_relpath)
                     print(f"Added: {file_relpath}")
-                    
                 except Exception as e:
                     print(f"Skipped {file_relpath} due to error: {e}")
 
@@ -327,8 +384,22 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
         # 1. Generate Header
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         header = f"# 🌲 AITree Context Document\n"
-        header += f"> **Generated by AITree by n0-se** on `{now}`  \n"
-        header += f"> **Total files included:** `{len(processed_files_data)}`\n\n"
+        header += f"> **Generated by AITree** on `{now}`  \n"
+        header += f"> **Total files included:** `{len(processed_files_data)}`\n"
+
+        package_json_path = os.path.join(initial_folder, "package.json")
+        if os.path.exists(package_json_path):
+            try:
+                with open(package_json_path, 'r', encoding='utf-8') as pj_f:
+                    pj_data = json.load(pj_f)
+                    deps = pj_data.get("dependencies", {})
+                    if deps:
+                        dep_str = ", ".join([f"`{k} ({v})`" for k, v in deps.items()])
+                        header += f"> **Dependencies:** {dep_str}\n"
+            except Exception:
+                pass
+
+        header += "\n"
         header += "The following document contains the file structure and source code for a project. Please use this context to answer subsequent questions.\n\n"
         header += "---\n\n"
         
@@ -341,17 +412,22 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
             header += "---\n\n"
         
         output_content.append(header)
+
+        if omitted_files and omitted_files_limit > 0:
+            omitted_list = "\n".join([f"- `{f}`" for f in omitted_files[:omitted_files_limit]])
+            if len(omitted_files) > omitted_files_limit:
+                 omitted_list += f"\n- ... and {len(omitted_files) - omitted_files_limit} more."
+            output_content.append("### 🚫 Omitted/Graylisted Files (Inside Processed Folders)\n<details><summary>Click to expand</summary>\n\n" + omitted_list + "\n\n</details>\n\n---\n\n")
         
         # 2. Placeholder for Tree
         tree_placeholder_index = -1
         if include_tree and processed_paths:
             output_content.append("### Project File Tree\n```text\n")
             tree_placeholder_index = len(output_content)
-            output_content.append("") # Placeholder for tree string
+            output_content.append("") 
             output_content.append("\n```\n\n---\n\n")
 
         # 3. Process files and track line numbers
-        # Calculate current_line for the first file block by simulating the prefix
         dummy_tree = generate_tree_string(processed_paths)
         prefix_parts = output_content[:]
         if tree_placeholder_index != -1:
@@ -361,8 +437,9 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
         line_ranges = {}
 
         file_blocks = []
-        for file_relpath, content in processed_files_data:
-            file_header = f"### File: `{file_relpath}`\n```\n"
+        for file_relpath, content, ext in processed_files_data:
+            lang = ext[1:] if ext else 'text' 
+            file_header = f"### File: `{file_relpath}`\n```{lang}\n"
             
             # Start is the line with "### File:"
             start_line = current_line
@@ -383,7 +460,6 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
             # end_line is the line with the closing ```
             # Header takes 2 lines, then c_lines of code, then 1 line for closing ```
             end_line = start_line + 2 + c_lines
-            
             line_ranges[file_relpath] = (start_line, end_line)
             
             block = file_header + content + file_footer
@@ -404,14 +480,32 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
 
     if dry_run:
         print("\n" + "="*73)
+       
+        if omitted_files:
+            omitted_dirs = set()
+            for f in omitted_files:
+                d = f.rsplit('/', 1)[0] if '/' in f else '.'
+                omitted_dirs.add(d)
+            
+            print(f"📂 Directories containing omitted/graylisted files ({len(omitted_dirs)}):")
+            print("   (Tip: Use this list to update 'folder_blacklist' or 'folder_whitelist')")
+            for d in sorted(omitted_dirs):
+                print(f"   - {d}/")
+            print("-" * 73)
+            
+        print("📝 Files to be processed:")
+        for log in dry_run_logs:
+            print(log)
+            
+        print("-" * 73)
         total_text = "Total estimated source size:"
         print(f"{total_text:<60}  {get_human_readable_size(total_bytes):>9} ")
         print("-" * 73)
         print("📊 Filter Recap:")
-        print(f"  • Total files evaluated:  {stats['evaluated_files']}")
         print(f"  • Included (Whitelisted): {stats['included']}")
         print(f"  • Graylisted (Skipped):   {stats['graylisted_files']}")
         print(f"  • Blacklisted:            {stats['blacklisted_files']}")
+        print(f"  • Total files evaluated:  {stats['evaluated_files']}")
         if stats['pruned_dirs'] > 0:
             print(f"  • Pruned Directories:     {stats['pruned_dirs']} (files inside not counted)")
         print("="*73)
