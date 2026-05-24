@@ -124,6 +124,9 @@ omitted_files_limit: 50
 # In dry run mode, show this many of the largest included files at the bottom (0 to disable)
 top_big_files_limit: 10
 
+# Hide individual graylisted files in the dry run "Files to be processed" output to reduce clutter
+hide_graylisted_in_dry_run: false
+
 # List of folders to explicitly include (leave empty to include everything not blacklisted)
 folder_whitelist: []
 
@@ -190,6 +193,7 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
     output_file = config.get("output_file", "output.txt")
     omitted_files_limit = config.get("omitted_files_limit", 50)
     top_big_files_limit = config.get("top_big_files_limit", 10)
+    hide_graylisted_in_dry_run = config.get("hide_graylisted_in_dry_run", False)
     extension_whitelist = config.get("extension_whitelist", [])
     
     ignore_hidden = config.get("ignore_hidden_files", True)
@@ -316,14 +320,15 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
                 omitted_files.append(file_relpath)
                 processed_paths.append(file_relpath) # Injects into the ASCII tree!
                 if dry_run:
-                    try:
-                        file_size = os.path.getsize(file_path)
-                        human_size = get_human_readable_size(file_size)
-                        action_text = f"[DRY RUN] Would graylist: {file_relpath}"
-                        dry_run_logs.append(f"{action_text:<60} ({human_size:>9})")
-                    except OSError:
-                        action_text = f"[DRY RUN] Would graylist: {file_relpath}"
-                        dry_run_logs.append(f"{action_text:<60} (Error reading)")
+                    if not hide_graylisted_in_dry_run:
+                        try:
+                            file_size = os.path.getsize(file_path)
+                            human_size = get_human_readable_size(file_size)
+                            action_text = f"[DRY RUN] Would graylist: {file_relpath}"
+                            dry_run_logs.append(f"{action_text:<60} ({human_size:>9})")
+                        except OSError:
+                            action_text = f"[DRY RUN] Would graylist: {file_relpath}"
+                            dry_run_logs.append(f"{action_text:<60} (Error reading)")
                 else:
                     print(f"Graylisted: {file_relpath}")
                 
@@ -503,6 +508,9 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
         print("📝 Files to be processed:")
         for log in dry_run_logs:
             print(log)
+            
+        if hide_graylisted_in_dry_run and stats['graylisted_files'] > 0:
+            print(f"\n  ... plus {stats['graylisted_files']} graylisted files (hidden from list by config).")
             
         print("-" * 73)
         total_text = "Total estimated source size:"
