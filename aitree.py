@@ -40,7 +40,6 @@ def print_help():
     print("  dry         Preview files to be added (defaults to aitree_config.yaml)")
     print("  init        Create a default config file (defaults to aitree_config.yaml)")
     print("  help        Show this help message\n")
-  
     print("Example:")
     print("  aitree generate custom_config.yaml\n")
 
@@ -109,6 +108,7 @@ project_info: ""
 
 # The root directory to start scanning from ("." is the current folder)
 initial_folder: "."
+
 # Automatically skip any file or folder starting with a dot (e.g., .git, .vscode)
 ignore_hidden_files: true
 
@@ -120,6 +120,9 @@ output_file: "ai_tree.md"
 
 # Maximum number of omitted files to list in the output (0 to hide the list)
 omitted_files_limit: 50
+
+# In dry run mode, show this many of the largest included files at the bottom (0 to disable)
+top_big_files_limit: 10
 
 # List of folders to explicitly include (leave empty to include everything not blacklisted)
 folder_whitelist: []
@@ -186,6 +189,7 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
     initial_folder = config.get("initial_folder", ".")
     output_file = config.get("output_file", "output.txt")
     omitted_files_limit = config.get("omitted_files_limit", 50)
+    top_big_files_limit = config.get("top_big_files_limit", 10)
     extension_whitelist = config.get("extension_whitelist", [])
     
     ignore_hidden = config.get("ignore_hidden_files", True)
@@ -219,6 +223,7 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
     processed_paths = []
     omitted_files = [] # Track files skipped within valid directories
     dry_run_logs = []  # Buffer dry run prints so we can order the final output
+    included_file_sizes = [] # Track sizes to sort top offenders
 
     # Dictionary to track filtering stats during dry run
     stats = {
@@ -355,6 +360,8 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
                     file_size = os.path.getsize(file_path)
                     total_bytes += file_size
                     human_size = get_human_readable_size(file_size)
+                    
+                    included_file_sizes.append((file_size, file_relpath, human_size))
                     
                     action_text = f"[DRY RUN] Would add: {file_relpath}"
                     dry_run_logs.append(f"{action_text:<60} ({human_size:>9})")
@@ -508,6 +515,15 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
         print(f"  • Total files evaluated:  {stats['evaluated_files']}")
         if stats['pruned_dirs'] > 0:
             print(f"  • Pruned Directories:     {stats['pruned_dirs']} (files inside not counted)")
+            
+        # --- TOP BIG FILES LOGIC ---
+        if included_file_sizes and top_big_files_limit > 0:
+            print("-" * 73)
+            print(f"🔝 Top {top_big_files_limit} Largest Included Files:")
+            top_files = sorted(included_file_sizes, key=lambda x: x[0], reverse=True)[:top_big_files_limit]
+            for size, path, h_size in top_files:
+                print(f"  • {path:<56} ({h_size:>9})")
+
         print("="*73)
         print(f"\nDry run complete. Run 'aitree generate' to save data to {output_file}.")
     else:
