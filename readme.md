@@ -1,3 +1,9 @@
+```
+▄████▄ ██   ██████ ▄▄▄▄  ▄▄▄▄▄ ▄▄▄▄▄ 
+██▄▄██ ██     ██   ██▄█▄ ██▄▄  ██▄▄  
+██  ██ ██     ██   ██ ██ ██▄▄▄ ██▄▄▄  
+```
+
 ## ⚙️ Installation
 
 AITree requires **Python 3.x** and the `pyyaml` library.

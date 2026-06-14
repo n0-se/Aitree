@@ -20,15 +20,10 @@ except ImportError:
     sys.exit(1)
 
 def print_header():
-    header = r"""
- $$$$$$\  $$$$$$\        $$$$$$$$\                                
- $$  __$$\ \_$$  _|       \__$$  __|                               
-$$ /  $$ |  $$ |           $$ | $$$$$$\   $$$$$$\   $$$$$$\  
- $$$$$$$$| $$ |          $$|$$  __$$\$$  __$$\ $$  __$$\ 
- $$ __$$ | $$ |          $$ |$$ |  \__|$$$$$$$$ |$$$$$$$$ |
- $$| $$ |  $$|         $$ |$$|     $$  ____|$$  ____|
- $$| $$ |$$$$$$\         $$ |$$ |      \$$$$$$$\ \$$$$$$$\ 
-\__|  \__|\______|         \__|\__|       \_______| \_______|
+    header = r"""                                                                         
+▄████▄ ██   ██████ ▄▄▄▄  ▄▄▄▄▄ ▄▄▄▄▄ 
+██▄▄██ ██     ██   ██▄█▄ ██▄▄  ██▄▄  
+██  ██ ██     ██   ██ ██ ██▄▄▄ ██▄▄▄                                          
     """
     print(header)
 
@@ -125,7 +120,7 @@ omitted_files_limit: 50
 top_big_files_limit: 10
 
 # Hide individual graylisted files in the dry run "Files to be processed" output to reduce clutter
-hide_graylisted_in_dry_run: false
+hide_graylisted_in_dry_run: true
 
 # List of folders to explicitly include (leave empty to include everything not blacklisted)
 folder_whitelist: []
@@ -193,7 +188,7 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
     output_file = config.get("output_file", "output.txt")
     omitted_files_limit = config.get("omitted_files_limit", 50)
     top_big_files_limit = config.get("top_big_files_limit", 10)
-    hide_graylisted_in_dry_run = config.get("hide_graylisted_in_dry_run", False)
+    hide_graylisted_in_dry_run = config.get("hide_graylisted_in_dry_run", True)
     extension_whitelist = config.get("extension_whitelist", [])
     
     ignore_hidden = config.get("ignore_hidden_files", True)
@@ -537,10 +532,42 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
     else:
         print(f"\nDone! Context successfully saved to: {output_file}")
 
+def select_config_file():
+    configs = [f for f in os.listdir('.') if f.startswith('aitree') and f.endswith('.yaml')]
+    if not configs:
+        return 'aitree_config.yaml'
+    if len(configs) == 1:
+        return configs[0]
+    
+    print("\nMultiple configuration files found. Please select one:")
+    for i, cfg in enumerate(configs):
+        print(f"  {i + 1}) {cfg}")
+    
+    while True:
+        try:
+            choice = input(f"Enter number (1-{len(configs)}): ")
+            choice_idx = int(choice)
+            if 1 <= choice_idx <= len(configs):
+                return configs[choice_idx - 1]
+            else:
+                print("Invalid choice. Try again.")
+        except ValueError:
+            print("Please enter a valid number.")
+        except (EOFError, KeyboardInterrupt):
+            print("\nAborted.")
+            sys.exit(1)
+
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         command = sys.argv[1].lower()
-        config_file = sys.argv[2] if len(sys.argv) > 2 else 'aitree_config.yaml'
+        
+        if len(sys.argv) > 2:
+            config_file = sys.argv[2]
+        else:
+            if command in ["generate", "dry"]:
+                config_file = select_config_file()
+            else:
+                config_file = 'aitree_config.yaml'
         
         if command == "init":
             create_default_config(config_file)
