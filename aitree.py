@@ -154,6 +154,10 @@ extension_whitelist:
   - ".ts"
   - ".css"
   - ".php"
+
+# GRAYLIST: File extensions listed here will appear in the ASCII tree and Omitted list,
+# but their source code will NOT be included in the output (useful for binaries/images).
+extension_graylist: []
 """
 
     try:
@@ -190,6 +194,8 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
     top_big_files_limit = config.get("top_big_files_limit", 10)
     hide_graylisted_in_dry_run = config.get("hide_graylisted_in_dry_run", True)
     extension_whitelist = config.get("extension_whitelist", [])
+    extension_graylist_raw = config.get("extension_graylist") or []
+    extension_graylist = [e.lower() for e in extension_graylist_raw]
     
     ignore_hidden = config.get("ignore_hidden_files", True)
     include_tree = config.get("include_file_tree", True)
@@ -301,7 +307,10 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
             # Evaluated BEFORE extensions/blacklists so graylisted binaries can appear in the tree safely
             is_graylisted = False
             dir_to_check = "." if current_dir_relpath == "" else current_dir_relpath
-            
+            # Extension-based graylist (e.g. binaries, images)
+            if ext and ext.lower() in extension_graylist:
+                is_graylisted = True
+
             for g in folder_graylist:
                 if dir_to_check == g or dir_to_check.startswith(g + "/"):
                     is_graylisted = True
