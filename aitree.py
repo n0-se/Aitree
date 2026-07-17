@@ -129,6 +129,7 @@ folder_whitelist: []
 folder_blacklist:
   - "test"
   - "vendor"
+  - "node_modules"
 
 # GRAYLIST: Files/Folders matching these will appear in the ASCII tree and Omitted list, 
 # but their source code will NOT be included in the output.
