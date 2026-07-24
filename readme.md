@@ -2,6 +2,7 @@
 ▄████▄ ██   ██████ ▄▄▄▄  ▄▄▄▄▄ ▄▄▄▄▄ 
 ██▄▄██ ██     ██   ██▄█▄ ██▄▄  ██▄▄  
 ██  ██ ██     ██   ██ ██ ██▄▄▄ ██▄▄▄  
+                                v1.1.0
 ```
 
 ## ⚙️ Installation
@@ -35,19 +36,19 @@ Using AITree is a simple three-step process. Navigate to the root folder of the 
 ```bash
 aitree init
 ```
-This generates a default `aitree_config.yaml` file in your current directory. Open this file to customize your project title, description, and configure your whitelist/blacklist rules to exclude folders like `node_modules`, `vendor`, or `.git`.
+This generates a default `aitree_config.yaml` file in your current directory. You can also create multiple configurations for the same project by naming them (e.g., `aitree init test` generates `aitree_config.test.yaml`). Open the generated file to customize your project title, description, and configure your whitelist/blacklist rules to exclude folders like `vendor` or `.git`.
 
 ### Step 2: Test Your Config
 ```bash
 aitree dry
 ```
-Run a "Dry Run" before generating your document. AITree will simulate the scan and print a list of every file it plans to include, along with the estimated total file size, without writing anything to your disk.
+Run a "Dry Run" before generating your document. AITree will simulate the scan and print a list of every file it plans to include, along with the estimated total file size, without writing anything to your disk. If you have multiple configurations, you can use the interactive menu or pass its index (e.g., `aitree dry 1`).
 
 ### Step 3: Generate the Context
 ```bash
 aitree generate
 ```
-AITree will instantly build an ASCII file tree and compile all your targeted source code into a single `ai_tree.md` file. 
+AITree will instantly build an ASCII file tree and compile all your targeted source code into a single `aitree.md` file (or `aitree.<name>.md` if using a named config). You can also run `aitree generate 1` to skip the prompt when multiple configs exist.
 
 You can now upload or paste this `.md` file directly into ChatGPT, Claude, or Gemini to give the AI complete, instant context of your entire project architecture!
 

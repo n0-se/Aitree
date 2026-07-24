@@ -23,20 +23,22 @@ def print_header():
     header = r"""                                                                         
 ▄████▄ ██   ██████ ▄▄▄▄  ▄▄▄▄▄ ▄▄▄▄▄ 
 ██▄▄██ ██     ██   ██▄█▄ ██▄▄  ██▄▄  
-██  ██ ██     ██   ██ ██ ██▄▄▄ ██▄▄▄                                          
-    """
+██  ██ ██     ██   ██ ██ ██▄▄▄ ██▄▄▄  v1.1.0
+                                      """
     print(header)
 
 def print_help():
     print_header()
-    print("Usage: aitree <command> [config_file]\n")
+    print("Usage: aitree <command> [config_file_or_index]\n")
     print("Commands:")
     print("  generate    Build the context file (defaults to aitree_config.yaml)")
     print("  dry         Preview files to be added (defaults to aitree_config.yaml)")
-    print("  init        Create a default config file (defaults to aitree_config.yaml)")
+    print("  init        Create a default config file (e.g., 'aitree init test' creates aitree_config.test.yaml)")
     print("  help        Show this help message\n")
     print("Example:")
-    print("  aitree generate custom_config.yaml\n")
+    print("  aitree generate custom_config.yaml")
+    print("  aitree dry 1     (Use the 1st config file in the directory)")
+    print("  aitree init api  (Creates aitree_config.api.yaml)\n")
 
 def get_human_readable_size(size_in_bytes):
     """Converts raw bytes into a human-readable string."""
@@ -111,7 +113,7 @@ ignore_hidden_files: true
 include_file_tree: true
 
 # The name of the final markdown file generated
-output_file: "ai_tree.md"
+output_file: "aitree.md"
 
 # Maximum number of omitted files to list in the output (0 to hide the list)
 omitted_files_limit: 50
@@ -130,6 +132,8 @@ folder_blacklist:
   - "test"
   - "vendor"
   - "node_modules"
+  - "tmp"
+  - "temp"
 
 # GRAYLIST: Files/Folders matching these will appear in the ASCII tree and Omitted list, 
 # but their source code will NOT be included in the output.
@@ -143,7 +147,8 @@ filepath_graylist: []
 filepath_whitelist: []
 
 # Explicitly ignore these specific files
-filepath_blacklist: []
+filepath_blacklist:
+  - "aitree_config.yaml"
 
 # Only include files with these exact extensions
 extension_whitelist:
@@ -160,6 +165,11 @@ extension_whitelist:
 # but their source code will NOT be included in the output (useful for binaries/images).
 extension_graylist: []
 """
+
+    if config_name != 'aitree_config.yaml' and config_name.startswith('aitree_config.') and config_name.endswith('.yaml'):
+        base = config_name[14:-5]
+        if base:
+            default_yaml = default_yaml.replace('output_file: "aitree.md"', f'output_file: "aitree.{base}.md"')
 
     try:
         with open(config_name, 'w', encoding='utf-8') as f:
@@ -239,6 +249,7 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
         'graylisted_files': 0,
         'pruned_dirs': 0
     }
+    included_ext_counts = {}
 
     for root, dirs, files in os.walk(initial_folder):
         current_dir_relpath = os.path.relpath(root, initial_folder).replace("\\", "/")
@@ -364,6 +375,9 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
 
             # If the file passes all constraints:
             stats['included'] += 1
+            
+            ext_key = ext.lower() if ext else "[no extension]"
+            included_ext_counts[ext_key] = included_ext_counts.get(ext_key, 0) + 1
 
             if dry_run:
                 try:
@@ -537,6 +551,16 @@ def generate_context(config_path='aitree_config.yaml', dry_run=False):
             for size, path, h_size in top_files:
                 print(f"  • {path:<56} ({h_size:>9})")
 
+        # --- EXTENSIONS CLASSIFICATION LOGIC ---
+        if included_ext_counts:
+            print("-" * 73)
+            print("📁 Included File Extensions:")
+            sorted_exts = sorted(included_ext_counts.items(), key=lambda x: (-x[1], x[0]))
+            for ext_key, count in sorted_exts:
+                print(f"  • {ext_key:<20} : {count}")
+            print(f"  {'='*25}")
+            print(f"  • {'Grand Total':<20} : {stats['included']}")
+
         print("="*73)
         print(f"\nDry run complete. Run 'aitree generate' to save data to {output_file}.")
     else:
@@ -573,6 +597,22 @@ if __name__ == "__main__":
         
         if len(sys.argv) > 2:
             config_file = sys.argv[2]
+            
+            if command in ["generate", "dry"]:
+                if config_file.isdigit():
+                    configs = [f for f in os.listdir('.') if f.startswith('aitree') and f.endswith('.yaml')]
+                    idx = int(config_file)
+                    if 1 <= idx <= len(configs):
+                        config_file = configs[idx - 1]
+                    else:
+                        print(f"❌ Error: Invalid config number {idx}. Available configs: 1 to {len(configs)}.")
+                        sys.exit(1)
+            elif command == "init":
+                if config_file != 'aitree_config.yaml' and not (config_file.startswith('aitree_config.') and config_file.endswith('.yaml')):
+                    base_name = config_file
+                    if base_name.endswith('.yaml'):
+                        base_name = base_name[:-5]
+                    config_file = f"aitree_config.{base_name}.yaml"
         else:
             if command in ["generate", "dry"]:
                 config_file = select_config_file()
